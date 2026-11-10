@@ -157,3 +157,36 @@ async function openConv(id) {
   const msgs = await api("/conversations/" + id + "/messages?client_id=" + encodeURIComponent(clientId));
   convId = id; $("chat").innerHTML = "";
   msgs.forEach(m => addMsg(m.role, m.content, m.role === "assistant" ? m.sources : null));
+  loadList();
+}
+function newChat() { convId = null; showEmpty(); $("side").classList.remove("open"); loadList(); }
+async function send(text) {
+  text = (text || $("input").value).trim(); if (!text || busy) return;
+  busy = true; $("send").disabled = true; $("input").value = "";
+  if ($("empty")) $("chat").innerHTML = "";
+  addMsg("user", text);
+  const wait = addMsg("bot", "Thinking...");
+  try {
+    const r = await api("/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, message: text, conversation_id: convId }) });
+    convId = r.conversation_id; wait.remove(); addMsg("bot", r.answer, r.sources); loadList();
+  } catch (e) { wait.remove(); addMsg("bot", "Sorry, something went wrong: " + e.message); }
+  busy = false; $("send").disabled = false; $("input").focus();
+}
+$("form").addEventListener("submit", e => { e.preventDefault(); send(); });
+$("input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+$("newchat").onclick = newChat;
+$("clearall").onclick = async () => {
+  if (!confirm("Delete all your chats on this browser?")) return;
+  try {
+    const rows = await api("/conversations?client_id=" + encodeURIComponent(clientId));
+    for (const c of rows) await api("/conversations/" + c.id + "?client_id=" + encodeURIComponent(clientId), { method: "DELETE" });
+  } catch (e) { $("status").textContent = "Could not clear chats: " + e.message; }
+  newChat();
+};
+$("menu").onclick = () => $("side").classList.toggle("open");
+$("today").textContent = new Date().toISOString().slice(0, 10);
+showEmpty(); loadList();
+</script>
+</body>
+</html>
