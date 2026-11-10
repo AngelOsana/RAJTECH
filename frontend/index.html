@@ -9,10 +9,10 @@
           --text:#eaf1fb; --muted:#9fb1c8; --teal:#4fd1c5; --teal2:#2bb3b0; --blue1:#1d4ed8; --blue2:#1e40af; --user:rgba(255,255,255,.14); }
   * { box-sizing:border-box; }
   body { margin:0; font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif; color:var(--text); min-height:100vh; min-height:100dvh;
-         background:linear-gradient(160deg,var(--page1),var(--page2)); display:flex; align-items:center; justify-content:center; padding:2vh 2vw; }
+         background:#122036; display:flex; }
   button { font:inherit; cursor:pointer; color:inherit; }
-  #app { width:100%; max-width:1280px; height:92vh; height:92dvh; display:flex; border-radius:26px; overflow:hidden;
-         background:linear-gradient(160deg,#243955 0%,#16233a 55%,#122036 100%); box-shadow:0 24px 60px rgba(20,35,60,.45); }
+  #app { width:100%; height:100vh; height:100dvh; display:flex; overflow:hidden;
+         background:linear-gradient(160deg,#243955 0%,#16233a 55%,#122036 100%); }
   #side { width:290px; flex-shrink:0; padding:18px 16px; display:flex; flex-direction:column; gap:14px;
           background:linear-gradient(180deg,rgba(79,209,197,.18),rgba(79,209,197,.05)); border-right:1px solid rgba(255,255,255,.08); }
   .brand { display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:.2px; padding:2px 4px; }
@@ -65,7 +65,6 @@
   #send:disabled { opacity:.5; cursor:default; }
   ::-webkit-scrollbar { width:8px; } ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.18); border-radius:8px; }
   @media (max-width: 760px) {
-    body { padding:0; } #app { height:100vh; height:100dvh; border-radius:0; max-width:none; }
     #side { position:fixed; inset:0 auto 0 0; z-index:5; transform:translateX(-100%); transition:transform .2s; width:84%; max-width:310px; background:#1a2b44; }
     #side.open { transform:none; box-shadow:0 0 0 100vmax rgba(0,0,0,.45); }
     #menu { display:block; } #top .tag { display:none; } #main { padding:12px; } .msg.bot { max-width:96%; } #msgs { padding:14px 10px; }
@@ -158,36 +157,3 @@ async function openConv(id) {
   const msgs = await api("/conversations/" + id + "/messages?client_id=" + encodeURIComponent(clientId));
   convId = id; $("chat").innerHTML = "";
   msgs.forEach(m => addMsg(m.role, m.content, m.role === "assistant" ? m.sources : null));
-  loadList();
-}
-function newChat() { convId = null; showEmpty(); $("side").classList.remove("open"); loadList(); }
-async function send(text) {
-  text = (text || $("input").value).trim(); if (!text || busy) return;
-  busy = true; $("send").disabled = true; $("input").value = "";
-  if ($("empty")) $("chat").innerHTML = "";
-  addMsg("user", text);
-  const wait = addMsg("bot", "Thinking...");
-  try {
-    const r = await api("/chat", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: clientId, message: text, conversation_id: convId }) });
-    convId = r.conversation_id; wait.remove(); addMsg("bot", r.answer, r.sources); loadList();
-  } catch (e) { wait.remove(); addMsg("bot", "Sorry, something went wrong: " + e.message); }
-  busy = false; $("send").disabled = false; $("input").focus();
-}
-$("form").addEventListener("submit", e => { e.preventDefault(); send(); });
-$("input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
-$("newchat").onclick = newChat;
-$("clearall").onclick = async () => {
-  if (!confirm("Delete all your chats on this browser?")) return;
-  try {
-    const rows = await api("/conversations?client_id=" + encodeURIComponent(clientId));
-    for (const c of rows) await api("/conversations/" + c.id + "?client_id=" + encodeURIComponent(clientId), { method: "DELETE" });
-  } catch (e) { $("status").textContent = "Could not clear chats: " + e.message; }
-  newChat();
-};
-$("menu").onclick = () => $("side").classList.toggle("open");
-$("today").textContent = new Date().toISOString().slice(0, 10);
-showEmpty(); loadList();
-</script>
-</body>
-</html>
