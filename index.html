@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kaagapay - Social Protection Chatbot</title>
+<style>
+  :root { --bg:#ffffff; --side:#f4f4f5; --text:#18181b; --muted:#71717a; --line:#e4e4e7; --accent:#0f766e; --user:#e6f4f1; --bot:#f4f4f5; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#18181b; --side:#111113; --text:#f4f4f5; --muted:#a1a1aa; --line:#3f3f46; --accent:#2dd4bf; --user:#134e4a; --bot:#27272a; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); height:100vh; height:100dvh; display:flex; }
+  #side { width:270px; background:var(--side); border-right:1px solid var(--line); display:flex; flex-direction:column; padding:12px; gap:8px; }
+  #side h1 { font-size:18px; margin:4px 4px 8px; }
+  button { font:inherit; cursor:pointer; }
+  #newchat { padding:10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--text); text-align:left; }
+  #newchat:hover, .conv:hover { background:var(--line); }
+  #list { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:2px; }
+  .conv { display:flex; align-items:center; border-radius:8px; padding:8px 10px; cursor:pointer; gap:6px; }
+  .conv.active { background:var(--line); }
+  .conv span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
+  .conv button { border:0; background:transparent; color:var(--muted); font-size:16px; padding:0 4px; visibility:hidden; }
+  .conv:hover button { visibility:visible; }
+  #main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  #top { display:none; padding:10px 14px; border-bottom:1px solid var(--line); align-items:center; gap:10px; }
+  #menu { border:1px solid var(--line); background:var(--bg); color:var(--text); border-radius:8px; padding:4px 10px; }
+  #msgs { flex:1; overflow-y:auto; padding:20px 16px; }
+  .wrap { max-width:780px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
+  .msg { padding:12px 14px; border-radius:12px; line-height:1.5; overflow-wrap:anywhere; }
+  .msg.user { background:var(--user); align-self:flex-end; max-width:85%; white-space:pre-wrap; }
+  .msg.bot { background:var(--bot); }
+  .msg table { border-collapse:collapse; } .msg td,.msg th { border:1px solid var(--line); padding:4px 8px; }
+  .msg p { margin:0 0 8px; } .msg p:last-child { margin:0; }
+  details.src { margin-top:8px; font-size:13px; color:var(--muted); }
+  #empty { text-align:center; color:var(--muted); margin-top:12vh; }
+  #empty h2 { color:var(--text); margin-bottom:4px; }
+  .chip { display:inline-block; margin:4px; padding:8px 12px; border:1px solid var(--line); border-radius:999px; cursor:pointer; font-size:14px; color:var(--text); background:var(--bg); }
+  #status { text-align:center; font-size:13px; color:var(--muted); min-height:20px; padding:2px; }
+  #form { display:flex; gap:8px; padding:8px 16px 16px; max-width:812px; width:100%; margin:0 auto; }
+  #input { flex:1; resize:none; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--text); font:inherit; max-height:140px; }
+  #send { padding:0 18px; border-radius:10px; border:0; background:var(--accent); color:#fff; }
+  #send:disabled { opacity:.5; cursor:default; }
+  @media (max-width: 720px) {
+    #side { position:fixed; inset:0 auto 0 0; z-index:5; transform:translateX(-100%); transition:transform .2s; width:80%; max-width:300px; }
+    #side.open { transform:none; box-shadow:0 0 0 100vmax rgba(0,0,0,.35); }
+    #top { display:flex; }
+  }
+</style>
+</head>
+<body>
+<aside id="side">
+  <h1>Kaagapay</h1>
+  <button id="newchat">+ New chat</button>
+  <div id="list"></div>
+</aside>
+<section id="main">
+  <div id="top"><button id="menu" aria-label="Open chat history">&#9776;</button><strong>Kaagapay</strong></div>
+  <div id="msgs"><div class="wrap" id="chat"></div></div>
+  <div id="status"></div>
+  <form id="form">
+    <textarea id="input" rows="1" maxlength="500" placeholder="Ask about the Magna Carta of the Poor, 4Ps, or the SP Framework..."></textarea>
+    <button id="send" type="submit">Send</button>
+  </form>
+</section>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+<script src="config.js"></script>
+<script>
+const API = (window.API_BASE || "").replace(/\/$/, "");
+const $ = id => document.getElementById(id);
+let clientId, convId = null, busy = false;
+try { clientId = localStorage.getItem("kaagapay_client_id"); } catch (e) {}
+if (!clientId) {
+  clientId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(16).slice(2) + "-0000");
+  try { localStorage.setItem("kaagapay_client_id", clientId); } catch (e) {}
+}
+const EXAMPLES = ["Who shall promulgate the IRR of the Magna Carta of the Poor?", "How much is the monthly health and nutrition grant under 4Ps?", "Ano ang ibig sabihin ng progressive realization?"];
+
+async function api(path, opts) {
+  const timer = setTimeout(() => { $("status").textContent = "Waking up the server (the free host sleeps when idle) - this can take up to a minute..."; }, 6000);
+  try {
+    const r = await fetch(API + path, opts);
+    if (!r.ok) { let d = {}; try { d = await r.json(); } catch (e) {} throw new Error(d.detail || r.statusText); }
+    return await r.json();
+  } finally { clearTimeout(timer); $("status").textContent = ""; }
+}
+function render(md) { return DOMPurify.sanitize(marked.parse(md || "")); }
+function addMsg(role, text, sources) {
+  const d = document.createElement("div"); d.className = "msg " + (role === "user" ? "user" : "bot");
+  if (role === "user") d.textContent = text; else d.innerHTML = render(text);
+  if (sources && sources.length) {
+    const s = document.createElement("details"); s.className = "src";
+    const sm = document.createElement("summary"); sm.textContent = "Sources retrieved";
+    s.appendChild(sm);
+    sources.forEach(x => { const p = document.createElement("div"); p.textContent = x.source + ", p." + x.page + " (similarity " + x.similarity + ")"; s.appendChild(p); });
+    d.appendChild(s);
+  }
+  $("chat").appendChild(d); $("msgs").scrollTop = $("msgs").scrollHeight; return d;
+}
+function showEmpty() {
+  $("chat").innerHTML = "";
+  const e = document.createElement("div"); e.id = "empty";
+  e.innerHTML = "<h2>Kaagapay</h2><p>Ask a question about the social protection documents.</p>";
+  EXAMPLES.forEach(t => { const c = document.createElement("span"); c.className = "chip"; c.textContent = t; c.onclick = () => send(t); e.appendChild(c); });
+  $("chat").appendChild(e);
+}
+async function loadList() {
+  try {
+    const rows = await api("/conversations?client_id=" + encodeURIComponent(clientId));
+    $("list").innerHTML = "";
+    rows.forEach(c => {
+      const row = document.createElement("div"); row.className = "conv" + (c.id === convId ? " active" : "");
+      const t = document.createElement("span"); t.textContent = c.title || "New chat";
+      const x = document.createElement("button"); x.textContent = "×"; x.title = "Delete chat";
+      x.onclick = async ev => { ev.stopPropagation(); await api("/conversations/" + c.id + "?client_id=" + encodeURIComponent(clientId), { method: "DELETE" }); if (c.id === convId) newChat(); loadList(); };
+      row.onclick = () => openConv(c.id);
+      row.append(t, x); $("list").appendChild(row);
+    });
+  } catch (e) { $("status").textContent = "Could not load chat history: " + e.message; }
+}
+async function openConv(id) {
+  $("side").classList.remove("open");
+  const msgs = await api("/conversations/" + id + "/messages?client_id=" + encodeURIComponent(clientId));
+  convId = id; $("chat").innerHTML = "";
+  msgs.forEach(m => addMsg(m.role, m.content, m.role === "assistant" ? m.sources : null));
+  loadList();
+}
+function newChat() { convId = null; showEmpty(); $("side").classList.remove("open"); loadList(); }
+async function send(text) {
+  text = (text || $("input").value).trim(); if (!text || busy) return;
+  busy = true; $("send").disabled = true; $("input").value = "";
+  if ($("empty")) $("chat").innerHTML = "";
+  addMsg("user", text);
+  const wait = addMsg("bot", "Thinking...");
+  try {
+    const r = await api("/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, message: text, conversation_id: convId }) });
+    convId = r.conversation_id; wait.remove(); addMsg("bot", r.answer, r.sources); loadList();
+  } catch (e) { wait.remove(); addMsg("bot", "Sorry, something went wrong: " + e.message); }
+  busy = false; $("send").disabled = false; $("input").focus();
+}
+$("form").addEventListener("submit", e => { e.preventDefault(); send(); });
+$("input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+$("newchat").onclick = newChat;
+$("menu").onclick = () => $("side").classList.toggle("open");
+showEmpty(); loadList();
+</script>
+</body>
+</html>

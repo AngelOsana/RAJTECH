@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+httpx
+openai
+fastembed
+numpy
+pydantic
